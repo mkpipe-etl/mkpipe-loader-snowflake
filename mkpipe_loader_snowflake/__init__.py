@@ -1,7 +1,7 @@
 from mkpipe.functions_spark import BaseLoader
 
 
-class SnowflakeExtractor(BaseLoader):
+class SnowflakeLoader(BaseLoader):
     def __init__(self, config, settings):
         super().__init__(
             config,
