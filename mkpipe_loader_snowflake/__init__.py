@@ -36,7 +36,7 @@ class SnowflakeLoader(BaseLoader, variant='snowflake'):
             'sfWarehouse': self.warehouse,
         }
         if self.private_key_file:
-            opts['pem_private_key'] = self.private_key_file
+            opts['pem_private_key_file'] = self.private_key_file
             if self.private_key_file_pwd:
                 opts['sfPrivateKeyPassphrase'] = self.private_key_file_pwd
         else:
@@ -49,7 +49,9 @@ class SnowflakeLoader(BaseLoader, variant='snowflake'):
         df = data.df
 
         if df is None:
-            logger.info({'table': target_name, 'status': 'skipped', 'reason': 'no data'})
+            logger.info(
+                {'table': target_name, 'status': 'skipped', 'reason': 'no data'}
+            )
             return
 
         df = add_etl_columns(df, datetime.now(), dedup_columns=table.dedup_columns)
@@ -57,7 +59,9 @@ class SnowflakeLoader(BaseLoader, variant='snowflake'):
         if table.write_partitions:
             df = df.coalesce(table.write_partitions)
 
-        logger.info({'table': target_name, 'status': 'loading', 'write_mode': write_mode})
+        logger.info(
+            {'table': target_name, 'status': 'loading', 'write_mode': write_mode}
+        )
 
         opts = {**self._base_options(), 'dbtable': target_name}
         writer = df.write.format('net.snowflake.spark.snowflake').mode(write_mode)

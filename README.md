@@ -1,6 +1,6 @@
 # mkpipe-loader-snowflake
 
-Snowflake loader plugin for [MkPipe](https://github.com/mkpipe-etl/mkpipe). Writes Spark DataFrames into Snowflake tables using the **native `spark-snowflake` connector**, which stages data via internal cloud storage (S3/Azure/GCS) — significantly faster than JDBC for large datasets.
+Snowflake loader plugin for [MkPipe](https://github.com/mkpipe-etl/mkpipe). Writes Spark DataFrames into Snowflake tables using the native Snowflake Spark connector (`spark-snowflake`), which stages data via internal cloud storage (S3/Azure/GCS) — significantly faster than JDBC for large datasets.
 
 ## Documentation
 
@@ -63,26 +63,26 @@ pipelines:
 
 ## Write Parallelism & Throughput
 
-Snowflake loader inherits from `JdbcLoader`. Two parameters control write performance:
+Snowflake loader uses the native Spark connector. Two parameters control write performance:
 
 ```yaml
       - name: public.events
         target_name: STG_EVENTS
         replication_method: full
-        batchsize: 50000        # rows per JDBC batch insert (default: 10000)
+        batchsize: 50000        # rows per batch insert (default: 10000)
         write_partitions: 4     # coalesce DataFrame to N partitions before writing
 ```
 
 ### How they work
 
-- **`batchsize`**: number of rows buffered before sending a single `INSERT` to Snowflake. Larger batches reduce round-trips and staging overhead.
-- **`write_partitions`**: calls `coalesce(N)` on the DataFrame before writing, reducing the number of concurrent JDBC connections to Snowflake.
+- **`batchsize`**: number of rows buffered before sending to Snowflake. Larger batches reduce round-trips and staging overhead.
+- **`write_partitions`**: calls `coalesce(N)` on the DataFrame before writing, controlling the number of concurrent write operations to Snowflake.
 
 ### Performance Notes
 
 - **Snowflake Warehouse size** is the primary write performance lever. A larger warehouse processes inserts faster regardless of partition count.
-- JDBC writes to Snowflake stage data internally before committing. Large `batchsize` (50,000+) reduces staging overhead.
-- For very large loads, consider using Snowflake's native `COPY INTO` via an external stage (S3/GCS) instead of JDBC — that is significantly faster but requires additional infrastructure.
+- The Spark connector stages data internally before committing. Large `batchsize` (50,000+) reduces staging overhead.
+- For very large loads, consider using Snowflake's native `COPY INTO` via an external stage (S3/GCS) instead — that is significantly faster but requires additional infrastructure.
 - `write_partitions: 4–8` is a good default to balance throughput and connection count.
 
 ---
@@ -94,7 +94,7 @@ Snowflake loader inherits from `JdbcLoader`. Two parameters control write perfor
 | `name` | string | required | Source table name |
 | `target_name` | string | required | Snowflake destination table name |
 | `replication_method` | `full` / `incremental` | `full` | Replication strategy |
-| `batchsize` | int | `10000` | Rows per JDBC batch insert |
+| `batchsize` | int | `10000` | Rows per batch insert |
 | `write_partitions` | int | — | Coalesce DataFrame to N partitions before writing |
 | `dedup_columns` | list | — | Columns used for `mkpipe_id` hash deduplication |
 | `tags` | list | `[]` | Tags for selective pipeline execution |
