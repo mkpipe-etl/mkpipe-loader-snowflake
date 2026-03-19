@@ -28,6 +28,8 @@ class SnowflakeLoader(BaseLoader, variant='snowflake'):
         self.private_key_file_pwd = connection.private_key_file_pwd
 
     def _base_options(self) -> dict:
+        import os
+
         opts = {
             'sfURL': f'{self.host}:{self.port}',
             'sfUser': self.username,
@@ -36,7 +38,9 @@ class SnowflakeLoader(BaseLoader, variant='snowflake'):
             'sfWarehouse': self.warehouse,
         }
         if self.private_key_file:
-            opts['pem_private_key_file'] = self.private_key_file
+            key_path = os.path.expanduser(self.private_key_file)
+            with open(key_path, 'r') as f:
+                opts['pem_private_key'] = f.read()
             if self.private_key_file_pwd:
                 opts['sfPrivateKeyPassphrase'] = self.private_key_file_pwd
         else:
