@@ -1,5 +1,6 @@
 import gc
 from datetime import datetime
+from typing import Optional
 
 from mkpipe.spark.base import BaseLoader
 from mkpipe.spark.columns import add_etl_columns
@@ -27,6 +28,32 @@ class SnowflakeLoader(BaseLoader, variant='snowflake'):
         self.private_key_file = connection.private_key_file
         self.private_key_file_pwd = connection.private_key_file_pwd
 
+    @staticmethod
+    def _read_pem_key(key_path: str, passphrase: Optional[str] = None) -> str:
+        from cryptography.hazmat.primitives import serialization
+        from cryptography.hazmat.backends import default_backend
+
+        with open(key_path, 'rb') as f:
+            key_data = f.read()
+
+        pwd_bytes = passphrase.encode() if passphrase else None
+        private_key = serialization.load_pem_private_key(
+            key_data, password=pwd_bytes, backend=default_backend()
+        )
+        key_bytes = private_key.private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.PKCS8,
+            encryption_algorithm=serialization.NoEncryption(),
+        )
+        # Strip PEM header/footer and newlines to get raw base64 content
+        key_str = (
+            key_bytes.decode('utf-8')
+            .replace('-----BEGIN PRIVATE KEY-----', '')
+            .replace('-----END PRIVATE KEY-----', '')
+            .strip()
+        )
+        return key_str
+
     def _base_options(self) -> dict:
         import os
 
@@ -39,10 +66,9 @@ class SnowflakeLoader(BaseLoader, variant='snowflake'):
         }
         if self.private_key_file:
             key_path = os.path.expanduser(self.private_key_file)
-            with open(key_path, 'r') as f:
-                opts['pem_private_key'] = f.read()
-            if self.private_key_file_pwd:
-                opts['sfPrivateKeyPassphrase'] = self.private_key_file_pwd
+            opts['pem_private_key'] = self._read_pem_key(
+                key_path, self.private_key_file_pwd
+            )
         else:
             opts['sfPassword'] = self.password
         return opts
