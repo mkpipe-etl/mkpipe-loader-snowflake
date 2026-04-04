@@ -1,10 +1,12 @@
 import gc
 from datetime import datetime
-from typing import Optional
+from typing import List, Optional
 
+from mkpipe.exceptions import ConfigError, LoadError
+from mkpipe.models import ConnectionConfig, ExtractResult, TableConfig, WriteStrategy
 from mkpipe.spark.base import BaseLoader
 from mkpipe.spark.columns import add_etl_columns
-from mkpipe.models import ConnectionConfig, ExtractResult, TableConfig
+from mkpipe.strategy import resolve_write_strategy
 from mkpipe.utils import get_logger
 
 JAR_PACKAGES = [
@@ -73,9 +75,57 @@ class SnowflakeLoader(BaseLoader, variant='snowflake'):
             opts['sfPassword'] = self.password
         return opts
 
+    def _write_df(self, df, write_mode: str, table_name: str) -> None:
+        opts = {**self._base_options(), 'dbtable': table_name}
+        writer = df.write.format('net.snowflake.spark.snowflake').mode(write_mode)
+        for k, v in opts.items():
+            writer = writer.option(k, v)
+        writer.save()
+
+    def _execute_sql(self, sql: str, spark) -> None:
+        opts = self._base_options()
+        spark.read.format('net.snowflake.spark.snowflake') \
+            .options(**opts) \
+            .option('query', sql) \
+            .load()
+
+    def _build_merge_sql(
+        self,
+        temp_table: str,
+        target_table: str,
+        write_key: List[str],
+        columns: List[str],
+        update_columns: List[str],
+    ) -> str:
+        join_cond = ' AND '.join(f't."{k}" = s."{k}"' for k in write_key)
+        insert_cols = ', '.join(f'"{c}"' for c in columns)
+        insert_vals = ', '.join(f's."{c}"' for c in columns)
+        update_set = ', '.join(f'"{c}" = s."{c}"' for c in update_columns)
+        return (
+            f'MERGE INTO {target_table} AS t '
+            f'USING {temp_table} AS s ON {join_cond} '
+            f'WHEN MATCHED THEN UPDATE SET {update_set} '
+            f'WHEN NOT MATCHED THEN INSERT ({insert_cols}) VALUES ({insert_vals})'
+        )
+
+    def _upsert(self, df, target_name: str, write_key: List[str], spark) -> None:
+        temp_table = f'_mkpipe_tmp_{target_name}'
+        try:
+            self._write_df(df, 'overwrite', temp_table)
+            non_key_cols = [c for c in df.columns if c not in write_key]
+            sql = self._build_merge_sql(
+                temp_table, target_name, write_key, df.columns, non_key_cols,
+            )
+            logger.debug({'upsert_sql': sql})
+            self._execute_sql(sql, spark)
+        finally:
+            try:
+                self._execute_sql(f'DROP TABLE IF EXISTS {temp_table}', spark)
+            except Exception:
+                logger.warning("Failed to drop temp table '%s'", temp_table)
+
     def load(self, table: TableConfig, data: ExtractResult, spark) -> None:
         target_name = table.target_name
-        write_mode = data.write_mode
         df = data.df
 
         if df is None:
@@ -89,15 +139,33 @@ class SnowflakeLoader(BaseLoader, variant='snowflake'):
         if table.write_partitions:
             df = df.coalesce(table.write_partitions)
 
+        strategy = resolve_write_strategy(table, data)
+
         logger.info(
-            {'table': target_name, 'status': 'loading', 'write_mode': write_mode}
+            {'table': target_name, 'status': 'loading', 'write_strategy': strategy.value}
         )
 
-        opts = {**self._base_options(), 'dbtable': target_name}
-        writer = df.write.format('net.snowflake.spark.snowflake').mode(write_mode)
-        for k, v in opts.items():
-            writer = writer.option(k, v)
-        writer.save()
+        try:
+            match strategy:
+                case WriteStrategy.APPEND:
+                    self._write_df(df, 'append', target_name)
+                case WriteStrategy.REPLACE:
+                    self._write_df(df, 'overwrite', target_name)
+                case WriteStrategy.UPSERT | WriteStrategy.MERGE:
+                    if not table.write_key:
+                        raise ConfigError(
+                            f"write_strategy '{strategy.value}' requires write_key "
+                            f"for table '{target_name}'"
+                        )
+                    self._upsert(df, target_name, table.write_key, spark)
+                case _:
+                    raise ConfigError(
+                        f"Snowflake loader does not support write_strategy: {strategy.value}"
+                    )
+        except (ConfigError, LoadError):
+            raise
+        except Exception as e:
+            raise LoadError(f"Failed to write '{target_name}': {e}") from e
 
         df.unpersist()
         gc.collect()
