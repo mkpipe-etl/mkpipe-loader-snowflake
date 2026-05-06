@@ -150,7 +150,8 @@ class SnowflakeLoader(BaseLoader, variant='snowflake'):
                 case WriteStrategy.APPEND:
                     self._write_df(df, 'append', target_name)
                 case WriteStrategy.REPLACE:
-                    self._write_df(df, 'overwrite', target_name)
+                    mode = 'append' if self.if_exists == 'append' else 'overwrite'
+                    self._write_df(df, mode, target_name)
                 case WriteStrategy.UPSERT | WriteStrategy.MERGE:
                     if not table.write_key:
                         raise ConfigError(
