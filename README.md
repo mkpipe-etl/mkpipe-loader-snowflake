@@ -75,7 +75,7 @@ Control how data is written to Snowflake:
 | Strategy | Snowflake Behavior |
 |---|---|
 | `append` | Insert via Spark connector (default for incremental) |
-| `replace` | Overwrite table via Spark connector (default for full). Use `if_exists: append` to preserve existing table |
+| `replace` | Overwrite table via Spark connector (default for full). With `if_exists: append`: truncate + insert (preserves schema/indexes) |
 | `upsert` | Write to temp table, then `MERGE INTO target USING temp ON ... WHEN MATCHED THEN UPDATE ... WHEN NOT MATCHED THEN INSERT ...` |
 | `merge` | Same as upsert for Snowflake |
 
@@ -120,7 +120,7 @@ Snowflake loader uses the native Spark connector. Two parameters control write p
 | `write_partitions` | int | — | Coalesce DataFrame to N partitions before writing |
 | `write_strategy` | string | — | `append`, `replace`, `upsert`, `merge` |
 | `write_key` | list | — | Key columns for upsert/merge (required) |
-| `if_exists` | string | — | `replace` (drop+create) or `append` (preserve table). Inherits from settings |
+| `if_exists` | string | — | `replace` (drop+create) or `append` (preserve table, truncate+insert). Inherits from settings |
 | `dedup_columns` | list | — | Columns used for `mkpipe_id` hash deduplication |
 | `tags` | list | `[]` | Tags for selective pipeline execution |
 | `pass_on_error` | bool | `false` | Skip table on error instead of failing |

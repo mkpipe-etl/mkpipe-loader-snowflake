@@ -89,6 +89,18 @@ class SnowflakeLoader(BaseLoader, variant='snowflake'):
             .option('query', sql) \
             .load()
 
+    def _table_exists(self, table_name: str, spark) -> bool:
+        """Check if a table exists in Snowflake."""
+        try:
+            opts = self._base_options()
+            spark.read.format('net.snowflake.spark.snowflake') \
+                .options(**opts) \
+                .option('query', f'SELECT 1 FROM {table_name} LIMIT 0') \
+                .load()
+            return True
+        except Exception:
+            return False
+
     def _build_merge_sql(
         self,
         temp_table: str,
@@ -151,10 +163,8 @@ class SnowflakeLoader(BaseLoader, variant='snowflake'):
                     self._write_df(df, 'append', target_name)
                 case WriteStrategy.REPLACE:
                     if self.if_exists == 'append':
-                        try:
+                        if self._table_exists(target_name, spark):
                             self._execute_sql(f'TRUNCATE TABLE {target_name}', spark)
-                        except Exception:
-                            pass
                         self._write_df(df, 'append', target_name)
                     else:
                         self._write_df(df, 'overwrite', target_name)
