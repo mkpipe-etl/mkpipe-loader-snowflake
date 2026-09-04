@@ -10,7 +10,7 @@ from mkpipe.strategy import resolve_write_strategy
 from mkpipe.utils import get_logger
 
 JAR_PACKAGES = [
-    'net.snowflake:spark-snowflake_2.13:3.1.0',
+    'net.snowflake:spark-snowflake_2.13:3.2.2-spak_4.1',
     'net.snowflake:snowflake-jdbc:3.24.0',
 ]
 
